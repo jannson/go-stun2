@@ -33,6 +33,12 @@ func (srv *Server) ListenAndServe(network, laddr string) error {
 	return srv.agent.ServePacket(c)
 }
 
+func (srv *Server) Serve(c net.PacketConn) error {
+	srv.addConn(c)
+	defer srv.removeConn(c)
+	return srv.agent.ServePacket(c)
+}
+
 func (srv *Server) ServeSTUN(msg *Message, from Transport) {
 	if msg.Type == MethodBinding {
 		to := from
