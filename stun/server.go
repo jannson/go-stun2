@@ -54,11 +54,15 @@ func (srv *Server) ServeSTUN(msg *Message, from Transport) {
 			},
 		}
 
+		conns := make([]net.PacketConn, 0, 8)
 		srv.mu.RLock()
-		defer srv.mu.RUnlock()
+		for i := 0; i < len(srv.conns); i++ {
+			conns = append(conns, srv.conns[i])
+		}
+		srv.mu.RUnlock()
 
 		if ch, ok := msg.GetInt(AttrChangeRequest); ok && ch != 0 {
-			for _, c := range srv.conns {
+			for _, c := range conns {
 				chip, chport := SockAddr(c.LocalAddr())
 				if chip.IsUnspecified() {
 					continue
@@ -77,18 +81,18 @@ func (srv *Server) ServeSTUN(msg *Message, from Transport) {
 			}
 		}
 
-		if len(srv.conns) < 2 {
+		if len(conns) < 2 {
 			srv.agent.Send(res, to)
 			return
 		}
 
 	other:
-		for _, a := range srv.conns {
+		for _, a := range conns {
 			aip, aport := SockAddr(a.LocalAddr())
 			if aip.IsUnspecified() || !ip.Equal(aip) || port == aport {
 				continue
 			}
-			for _, b := range srv.conns {
+			for _, b := range conns {
 				bip, bport := SockAddr(b.LocalAddr())
 				if bip.IsUnspecified() || bip.Equal(ip) || aport != bport {
 					continue
