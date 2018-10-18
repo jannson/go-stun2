@@ -90,11 +90,14 @@ func (srv *Server) ServeSTUN(msg *Message, from Transport) {
 		for _, a := range conns {
 			aip, aport := SockAddr(a.LocalAddr())
 			if aip.IsUnspecified() || !ip.Equal(aip) || port == aport {
+				//找一个 IP 相同但端口不同的本地连接 a
 				continue
 			}
 			for _, b := range conns {
 				bip, bport := SockAddr(b.LocalAddr())
 				if bip.IsUnspecified() || bip.Equal(ip) || aport != bport {
+					//找一个 IP 不同但端口等同于连接 a 的端口
+					//最终找到跟自己 IP 不同同时跟自己端口也不同的地址
 					continue
 				}
 				res.Set(Addr(AttrOtherAddress, b.LocalAddr()))
