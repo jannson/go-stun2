@@ -69,6 +69,15 @@ func (srv *Server) ServeSTUN(msg *Message, from Transport) {
 				}
 				if ch&ChangeIP != 0 {
 					if !ip.Equal(chip) {
+						if ch&ChangePort != 0 {
+							if port != chport {
+								to = &packetConn{c, mapped}
+								break
+							} else {
+								continue
+							}
+						}
+
 						to = &packetConn{c, mapped}
 						break
 					}
