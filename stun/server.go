@@ -95,7 +95,7 @@ func (srv *Server) ServeSTUN(msg *Message, from Transport) {
 			}
 			for _, b := range conns {
 				bip, bport := SockAddr(b.LocalAddr())
-				if bip.IsUnspecified() || bip.Equal(ip) || aport != bport {
+				if bip.IsUnspecified() || ip.Equal(bip) || aport != bport {
 					//找一个 IP 不同但端口等同于连接 a 的端口
 					//最终找到跟自己 IP 不同同时跟自己端口也不同的地址
 					continue
