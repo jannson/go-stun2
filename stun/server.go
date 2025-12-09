@@ -1,9 +1,13 @@
 package stun
 
 import (
+	"log"
 	"net"
+	"os"
 	"sync"
 )
+
+var debugSTUN = os.Getenv("STUN_DEBUG") != ""
 
 func ListenAndServe(network, laddr string, config *Config) error {
 	srv := NewServer(config)
@@ -44,6 +48,10 @@ func (srv *Server) ServeSTUN(msg *Message, from Transport) {
 		to := from
 		mapped := from.RemoteAddr()
 		ip, port := SockAddr(from.LocalAddr())
+		chVal, _ := msg.GetInt(AttrChangeRequest)
+		if debugSTUN {
+			log.Printf("[stun] recv binding from=%v local=%v changeReq=%v", mapped, from.LocalAddr(), chVal)
+		}
 
 		res := &Message{
 			Type:        MethodBinding | KindResponse,
@@ -131,10 +139,16 @@ func (srv *Server) ServeSTUN(msg *Message, from Transport) {
 		}
 
 		if len(conns) < 2 {
+			if debugSTUN {
+				log.Printf("[stun] send resp to=%v other=%v", to.LocalAddr(), otherAddrResolved)
+			}
 			srv.agent.Send(res, to)
 			return
 		}
 
+		if debugSTUN {
+			log.Printf("[stun] send resp to=%v other=%v", to.LocalAddr(), otherAddrResolved)
+		}
 		srv.agent.Send(res, to)
 	}
 }
