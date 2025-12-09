@@ -61,48 +61,78 @@ func (srv *Server) ServeSTUN(msg *Message, from Transport) {
 		}
 		srv.mu.RUnlock()
 
-		if ch, ok := msg.GetInt(AttrChangeRequest); ok && ch != 0 {
-			for _, c := range conns {
-				chip, chport := SockAddr(c.LocalAddr())
-				if chip.IsUnspecified() {
-					continue
-				}
-				if ch&ChangeIP != 0 {
-					// Need a different IP, and when both bits set also a different port.
-					if !ip.Equal(chip) && (ch&ChangePort == 0 || port != chport) {
-						to = &packetConn{c, mapped}
-						break
-					}
-				} else if ch&ChangePort != 0 {
-					if ip.Equal(chip) && port != chport {
-						to = &packetConn{c, mapped}
-						break
-					}
+		var (
+			otherConn         net.PacketConn
+			sameIPDiffPort    net.PacketConn
+			diffIPDiffPort    net.PacketConn
+			otherAddrResolved net.Addr
+		)
+
+		// Precompute pairs to satisfy RFC5780:
+		// a) OTHER-ADDRESS: different IP and different port.
+		// b) CHANGE-REQUEST(change IP+port): use the same target as OTHER-ADDRESS when available.
+		// c) CHANGE-REQUEST(change port): same IP, different port.
+		for _, a := range conns {
+			aip, aport := SockAddr(a.LocalAddr())
+			if aip.IsUnspecified() {
+				continue
+			}
+			// same IP, different port candidate
+			if ip.Equal(aip) && port != aport && sameIPDiffPort == nil {
+				sameIPDiffPort = a
+			}
+			// Look for a pair with different IP and different port.
+			if ip.Equal(aip) {
+				continue
+			}
+			if port == aport {
+				continue
+			}
+			// prefer the first different IP+port as diffIPDiffPort
+			if diffIPDiffPort == nil {
+				diffIPDiffPort = a
+			}
+			// if we already found a same-IP-diff-port with matching port, set otherConn
+			if sameIPDiffPort != nil {
+				if _, aport2 := SockAddr(sameIPDiffPort.LocalAddr()); aport2 == aport {
+					otherConn = a
+					otherAddrResolved = a.LocalAddr()
 				}
 			}
+		}
+
+		// Fallback: if we didn't find paired ports, still set OTHER-ADDRESS to any diff IP+port.
+		if otherConn == nil && diffIPDiffPort != nil {
+			otherConn = diffIPDiffPort
+			otherAddrResolved = diffIPDiffPort.LocalAddr()
+		}
+
+		// Apply CHANGE-REQUEST selection.
+		if ch, ok := msg.GetInt(AttrChangeRequest); ok && ch != 0 {
+			switch {
+			case ch&(ChangeIP|ChangePort) == (ChangeIP | ChangePort):
+				if otherConn != nil {
+					to = &packetConn{otherConn, mapped}
+				}
+			case ch&ChangeIP != 0:
+				if diffIPDiffPort != nil {
+					to = &packetConn{diffIPDiffPort, mapped}
+				}
+			case ch&ChangePort != 0:
+				if sameIPDiffPort != nil {
+					to = &packetConn{sameIPDiffPort, mapped}
+				}
+			}
+		}
+
+		// Populate OTHER-ADDRESS if available.
+		if otherAddrResolved != nil {
+			res.Set(Addr(AttrOtherAddress, otherAddrResolved))
 		}
 
 		if len(conns) < 2 {
 			srv.agent.Send(res, to)
 			return
-		}
-
-	other:
-		for _, a := range conns {
-			aip, aport := SockAddr(a.LocalAddr())
-			if aip.IsUnspecified() || !ip.Equal(aip) || port == aport {
-				// 找一个 IP 相同但端口不同的本地连接 a
-				continue
-			}
-			for _, b := range conns {
-				bip, bport := SockAddr(b.LocalAddr())
-				if bip.IsUnspecified() || ip.Equal(bip) || aport != bport || bport == port {
-					// 找一个 IP 不同但端口等同于连接 a 的端口，且端口也不同于原始端口
-					continue
-				}
-				res.Set(Addr(AttrOtherAddress, b.LocalAddr()))
-				break other
-			}
 		}
 
 		srv.agent.Send(res, to)
