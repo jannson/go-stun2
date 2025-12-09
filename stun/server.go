@@ -68,7 +68,8 @@ func (srv *Server) ServeSTUN(msg *Message, from Transport) {
 					continue
 				}
 				if ch&ChangeIP != 0 {
-					if !ip.Equal(chip) {
+					// Need a different IP, and when both bits set also a different port.
+					if !ip.Equal(chip) && (ch&ChangePort == 0 || port != chport) {
 						to = &packetConn{c, mapped}
 						break
 					}
@@ -90,14 +91,13 @@ func (srv *Server) ServeSTUN(msg *Message, from Transport) {
 		for _, a := range conns {
 			aip, aport := SockAddr(a.LocalAddr())
 			if aip.IsUnspecified() || !ip.Equal(aip) || port == aport {
-				//找一个 IP 相同但端口不同的本地连接 a
+				// 找一个 IP 相同但端口不同的本地连接 a
 				continue
 			}
 			for _, b := range conns {
 				bip, bport := SockAddr(b.LocalAddr())
-				if bip.IsUnspecified() || ip.Equal(bip) || aport != bport {
-					//找一个 IP 不同但端口等同于连接 a 的端口
-					//最终找到跟自己 IP 不同同时跟自己端口也不同的地址
+				if bip.IsUnspecified() || ip.Equal(bip) || aport != bport || bport == port {
+					// 找一个 IP 不同但端口等同于连接 a 的端口，且端口也不同于原始端口
 					continue
 				}
 				res.Set(Addr(AttrOtherAddress, b.LocalAddr()))
